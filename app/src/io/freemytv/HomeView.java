@@ -8,6 +8,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapShader;
 import android.graphics.BlurMaskFilter;
 import android.graphics.Canvas;
+import android.graphics.Color;
 import android.graphics.LinearGradient;
 import android.graphics.Matrix;
 import android.graphics.Paint;
@@ -33,10 +34,13 @@ import android.view.accessibility.AccessibilityNodeProvider;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.text.SimpleDateFormat;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.WeakHashMap;
 import java.util.concurrent.ExecutorService;
@@ -78,14 +82,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // Bottom drawer (measured with it open; everything moves up by SHIFT).
     private static final float SHIFT = 560, ROW_TITLE = 518, ROW_TOP = 540, ROW_H = 126, CARDS_TOP = 708, CARDS_H = 300;
     // "All Apps" sheet.
-    private static final int COLUMNS = 5, VISIBLE_ROWS = 3;
-    private static final float GRID_W = 300, GRID_H = 169, GRID_GAP = 40, GRID_ROW = 239, GRID_TOP = 196, GRID_RADIUS = 22;
+    private static final int COLUMNS = 4, VISIBLE_ROWS = 3;
+    private static final float GRID_W = 300, GRID_H = 169, GRID_GAP = 48, GRID_ROW = 239, GRID_TOP = 196, GRID_RADIUS = 22;
     private static final int SMOKE = 0xFF111113, INK = 0xFF1C1C1E, WHITE = 0xFFF5F5F7;
     private static final int UP_COLOR = 0xFF30D158, DOWN_COLOR = 0xFFFF453A;
     private static final long TOAST_MS = 6000, FADE_MS = 800;
     /** Blur radii of the shadow and shadowDeep paints (Shadows needs them to draw the same blur on older TVs). */
     private static final float SHADOW_BLUR = 26, DEEP_BLUR = 30;
     private static final int SKY = 0, HERO = 1, STATUS = 2, PLATTER = 3, TILES = 4, DRAWER = 5, SHEET = 6, TOAST = 7;
+    private static final int MUSIC = 8, YOUTUBE = 9, Z_MUSIC = 6, Z_YOUTUBE = 7;
     private static final int Z_STATUS = 0, Z_HERO = 1, Z_SHELF = 2, Z_DRAWER = 3;
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor();
     // Light design (the L_ constants): title, tab bar, three recommendation cards and the shelf.
@@ -93,7 +98,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private static final float L_TITLE_BASE = 130, L_TABBAR_TOP = 158, L_TABBAR_H = 68, L_CARDS_TOP = 262, L_CARD_H = 442;
     private static final float L_TALL_W = 320, L_CARD_GAP = 40, L_BUTTON = 68, L_BUTTON_GAP = 20, L_BUTTON_CY = 103;
     private static final float L_PLATTER_TOP = 814, L_TILE_H = 126;
-    private static final float L_DATE_BASE = 330, L_CLOCK_BASE = 540, L_WEATHER_BASE = 626, L_QUOTES_BASE = 694;
+    private static final float L_WEATHER_BASE = 626, L_QUOTES_BASE = 694;
     private static final int L_INK = 0xFF1D1D1F, L_DIM = 0xFF6E6E73, L_FAINT = 0xFF8E8E93;
     private static final String[] TABS = {"Explorar", "Filmes", "Séries"};
     private static final String[] TABS_RU = {"Обзор", "Фильмы", "Сериалы"};
@@ -121,7 +126,18 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         @Override public boolean clickable(int id) { return (id - 1) / 1000 != WIDGETS; }
     });
     private final RectF a11yRect = new RectF();
-    private final Layer sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer;
+    private final Layer sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer, musicLayer, youtubeLayer;
+    private final AnimatedWallpaper animatedWallpaper;
+    private final SpotifyPlayback spotify;
+    private final SpotifyWidget spotifyWidget;
+    private int musicIndex = 1;
+    private long musicBarsAt, musicProgressAt;
+    private final Paint musicInk = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Runnable musicChanged = this::refreshMusic;
+    private final YouTubeHistory youtube;
+    private final YouTubeRecentShelf youtubeShelf;
+    private int youtubeIndex;
+    private final Runnable youtubeChanged = this::refreshYouTube;
     private int zone = Z_SHELF;
 
     // Night look (like Apple's "Automatic" appearance): darker from sunset to sunrise, with a 2 s transition.
@@ -150,6 +166,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private List<HomeApps.Item> shelf = new ArrayList<>();
     private Spring[] tileFocus = new Spring[0];
     private RectF[] tileRects = new RectF[0];
+    private RectF[] dockRects = new RectF[0];
+    private boolean compactDock;
+    private static final float DOCK_GROW = 0.38f;
+    private static final float DOCK_SIZE = 1.3225f;
+    private Paint dockLabel;
     private final Map<String, Bitmap> crispLogos = new HashMap<>();   // logos already sized for the focused tile
     /** Each app's tile like its Apple TV icon: brand colors (top, bottom) and logo (0 = as is, 1 = white, 2 = dark). */
     private static final Map<String, int[]> TILE_STYLE = new HashMap<>();
@@ -312,6 +333,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 case TILES: drawTiles(c); break;
                 case DRAWER: drawDrawer(c); break;
                 case SHEET: drawSheet(c); break;
+                case MUSIC: spotifyWidget.draw(c, scene, zone == Z_MUSIC && !sheetOpen ? musicIndex : -1); break;
+                case YOUTUBE: youtubeShelf.draw(getContext(), c, scene, zone == Z_YOUTUBE && !sheetOpen ? youtubeIndex : -1); break;
                 default: drawToast(c); break;
             }
             scene.setOffset(0, 0);
@@ -348,6 +371,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     HomeView(Activity a) {
         super(a);
         activity = a;
+        spotify = SpotifyPlayback.get(a);
+        spotifyWidget = new SpotifyWidget(spotify);
+        youtube = YouTubeHistory.get(a);
+        youtubeShelf = new YouTubeRecentShelf(youtube);
         data = HomeData.get(a);
         recs = Recs.get(a);
         click = new Click(a);
@@ -355,6 +382,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         tvInputs = (TvInputManager) a.getSystemService(Context.TV_INPUT_SERVICE);
         setFocusable(true);
         sky = new Layer(a, SKY);
+        animatedWallpaper = new AnimatedWallpaper(a, () -> sky.invalidate());
+        addView(animatedWallpaper);
         heroLayer = new Layer(a, HERO);
         status = new Layer(a, STATUS);
         platter = new Layer(a, PLATTER);
@@ -362,12 +391,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         drawerLayer = new Layer(a, DRAWER);
         sheetLayer = new Layer(a, SHEET);
         toastLayer = new Layer(a, TOAST);
+        musicLayer = new Layer(a, MUSIC);
+        youtubeLayer = new Layer(a, YOUTUBE);
         // Hardware layers on the GPU: only the one that changed is redrawn; moving, fading and scaling stay cheap.
         // Not on Android 9 to 11: on older GPUs (a Mi Box 3's Mali-450) redrawing and compositing a big layer on every
         // frame cost more than drawing straight to the screen (measured: focus on the picks 33 → 12 ms a frame, the
         // drawer 19 → 17 ms).
         for (View v : new View[] {heroLayer, status, platter, tiles, drawerLayer, sheetLayer}) v.setLayerType(Ui.LEGACY ? LAYER_TYPE_NONE : LAYER_TYPE_HARDWARE, null);
-        for (View v : new View[] {sky, heroLayer, status, platter, tiles, drawerLayer, sheetLayer, toastLayer}) {
+        for (View v : new View[] {sky, heroLayer, status, musicLayer, youtubeLayer, platter, tiles, drawerLayer, sheetLayer, toastLayer}) {
             v.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);   // TalkBack reads the items (Spoken)
             addView(v);
         }
@@ -398,6 +429,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     void resume() {
         if (running) return;
         running = true;
+        animatedWallpaper.resume();
+        spotify.add(musicChanged);
+        youtube.add(youtubeChanged);
         checkNight(false);
         resumedAt = SystemClock.uptimeMillis();
         lastNanos = 0;
@@ -424,6 +458,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     void pause() {
         if (!running) return;
         running = false;
+        animatedWallpaper.pause();
         cancelReorder(true);
         handler.removeCallbacks(holdStart);
         okHeld = holdArmed = false;
@@ -432,6 +467,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         handler.removeCallbacks(reloadSoon);
         data.removeListener(this);
         recs.removeListener(this);
+        spotify.remove(musicChanged);
+        youtube.remove(youtubeChanged);
         if (tvInputs != null) tvInputs.unregisterCallback(inputCallback);
     }
 
@@ -491,7 +528,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void invalidateAll() {
-        for (View v : new View[] {sky, heroLayer, status, platter, tiles, drawerLayer}) v.invalidate();
+        for (View v : new View[] {sky, heroLayer, status, platter, tiles, drawerLayer, musicLayer, youtubeLayer}) v.invalidate();
     }
 
     // MARK: - Size and layers
@@ -499,13 +536,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     @Override protected void onMeasure(int widthSpec, int heightSpec) {
         int width = MeasureSpec.getSize(widthSpec), height = MeasureSpec.getSize(heightSpec);
         float kk = width / 1920f;
+        measure(animatedWallpaper, width, height);
         measure(sky, width, height);
         measure(heroLayer, width, Math.round(790 * kk));
         measure(status, Math.round(1160 * kk), Math.round(240 * kk));
+        measure(musicLayer, width, Math.round(230 * kk));
+        measure(youtubeLayer, width, Math.round(610 * kk));
         // Sized to what they draw (the glass and its shadow; the grown tiles and their shadows): smaller layers are
         // cheaper for the GPU to composite on every frame of the drawer animation.
         measure(platter, width, Math.round(320 * kk));
-        measure(tiles, width, Math.round(270 * kk));
+        measure(tiles, width, Math.round(340 * kk));
         measure(drawerLayer, width, Math.round(600 * kk));
         measure(sheetLayer, width, height);
         measure(toastLayer, Math.round(1000 * kk), Math.round(220 * kk));
@@ -520,10 +560,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int width = r - l, height = b - t;
         float kk = width / 1920f;
         sky.layout(0, 0, width, height);
+        animatedWallpaper.layout(0, 0, width, height);
         place(heroLayer, 0, 0);
         place(status, width - status.getMeasuredWidth(), 0);
+        place(musicLayer, 0, Math.round(40 * kk));
+        place(youtubeLayer, 0, Math.round(170 * kk));
         place(platter, 0, Math.round(750 * kk));
-        place(tiles, 0, Math.round(790 * kk));
+        place(tiles, 0, Math.round(720 * kk));
         place(drawerLayer, 0, Math.round(470 * kk));
         sheetLayer.layout(0, 0, width, height);
         sheetLayer.setPivotX(width / 2f);
@@ -542,6 +585,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         screen.set(0, 0, w, h);
         scene.setSize(w, h);
         makePaints();
+        spotifyWidget.layout(k);
+        youtubeShelf.layout(k);
         gridLabels = null;
         clockMinute = -1;
         updateClock();
@@ -549,6 +594,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         layoutStatus();
         layoutDrawer();
         layoutLight();
+        layoutMusic();
         hero = null;
         heroFrom = null;
         updatePicks();
@@ -557,6 +603,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void makePaints() {
+        dockLabel = Ui.text(Ui.medium, 25 * k, WHITE);
+        dockLabel.setTextAlign(Paint.Align.CENTER);
         labelPaint = Ui.text(Ui.medium, 25 * k, 0xC7FFFFFF);
         labelPaint.setLetterSpacing(0.1f);
         titlePaint = new TextPaint(Ui.text(Ui.displayMedium, 76 * k, 0xFFFFFFFF));
@@ -576,8 +624,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lQuote = Ui.numbers(Ui.regular, 21 * k, L_FAINT);
         lTip = Ui.text(Ui.semibold, 25 * k, L_INK);
         lTip.setTextAlign(Paint.Align.CENTER);
-        lDate = Ui.text(Ui.semibold, 34 * k, L_DIM);
-        lClock = Ui.numbers(Ui.light, 200 * k, L_INK);
+        lDate = Ui.text(Ui.semibold, 28 * k, L_DIM);
+        lClock = Ui.numbers(Ui.light, 56 * k, L_INK);
         lClock.setLetterSpacing(-0.01f);
         lWeather = Ui.text(Ui.medium, 34 * k, L_DIM);
         lClockQuote = Ui.numbers(Ui.medium, 28 * k, L_DIM);
@@ -632,6 +680,19 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lastNanos = frameTimeNanos;
         long up = SystemClock.uptimeMillis();
 
+        boolean musicPlaying = spotify.playing() && !sheetOpen && !drawerOpen;
+        if (musicPlaying && up - musicBarsAt >= 80) {
+            musicBarsAt = up;
+            tiles.invalidate();
+            if (musicAvailable()) musicLayer.invalidate();
+        }
+        if (spotifyWidget.visible() && up - musicProgressAt >= 1000) {
+            musicProgressAt = up;
+            musicLayer.invalidate();
+        }
+
+        boolean musicMoving = spotifyWidget.step(dt);
+        if (musicMoving) musicLayer.invalidate();
         boolean tilesMoving = step(tileFocus, dt);
         if (reorderAnim) tilesMoving |= stepReorder(dt, up);
         boolean statusMoving = step(statusFocus, dt);
@@ -664,6 +725,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         tilesDirty = statusDirty = heroDirty = drawerDirty = gridDirty = motionDirty = false;
         if (updateClock()) {
             layoutStatus();
+            layoutMusic();
             status.invalidate();
             if (hero != null && hero.clock) {
                 refreshHero(false);
@@ -673,12 +735,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
 
         // Busy: something is moving, or the sheet or the drawer is open.
-        boolean busy = tilesMoving || statusMoving || heroMoving || drawerItemsMoving || gridMoving || drawerMoving
+        boolean busy = musicMoving || tilesMoving || statusMoving || heroMoving || drawerItemsMoving || gridMoving || drawerMoving
                 || sheetMoving || toastFading || heroFading || bgFading || nightMoving || sheetOpen || sheet.value > 0.001f
                 || drawerOpen || drawer.value > 0.001f || toast != null || !toasts.isEmpty();
         idle = !busy;
         if (busy) Choreographer.getInstance().postFrameCallback(this);
-        else Choreographer.getInstance().postFrameCallbackDelayed(this, 1000);
+        else Choreographer.getInstance().postFrameCallbackDelayed(this, musicPlaying ? 80 : 1000);
     }
 
     private void wake() {
@@ -687,6 +749,46 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lastNanos = 0;
         Choreographer.getInstance().removeFrameCallback(this);
         Choreographer.getInstance().postFrameCallback(this);
+    }
+
+    private boolean youtubeSelected() {
+        return shelfIndex < shelf.size() && YouTubeHistory.PACKAGE.equals(shelf.get(shelfIndex).pkg);
+    }
+
+    private boolean youtubeVisible() {
+        return !picksOn() && youtubeSelected()
+                && (zone == Z_YOUTUBE || zone == Z_SHELF || zone == Z_MUSIC || zone == Z_TOP);
+    }
+
+    private boolean musicAvailable() { return !picksOn() && spotifyWidget.visible(); }
+
+    private void layoutMusic() {
+        if (lClock == null || lDate == null || topRects[3] == null) return;
+        float left = MARGIN*k + lClock.measureText(clockText) + 28*k + lDate.measureText(dateText) + 48*k;
+        float right = topRects[3].left - 48*k;
+        float center = w / 2f;
+        // Keep both island states exactly centered on the screen, with equal room on either side.
+        float half = Math.max(50*k, Math.min(center-left, right-center));
+        spotifyWidget.headerBounds(center-half, center+half);
+        musicLayer.invalidate();
+    }
+
+    private void refreshYouTube() {
+        wake();
+        youtubeIndex = Math.min(youtubeIndex, Math.max(0, youtubeShelf.size()-1));
+        if (zone == Z_YOUTUBE && youtubeShelf.size() == 0) { zone = Z_SHELF; retarget(false); }
+        youtubeLayer.invalidate();
+        motionDirty = true;
+        spoken.focusMoved();
+    }
+
+    private void refreshMusic() {
+        wake();
+        if (zone == Z_MUSIC && !musicAvailable()) { zone = Z_SHELF; retarget(false); }
+        musicLayer.invalidate();
+        tilesDirty = true;
+        motionDirty = true;
+        spoken.focusMoved();
     }
 
     private static boolean step(Spring[] springs, float dt) {
@@ -711,6 +813,9 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         drawerLayer.setVisibility(da > 0.002f ? VISIBLE : INVISIBLE);
         sheetLayer.setVisibility(s > 0.001f || sheetOpen ? VISIBLE : INVISIBLE);
         sheetLayer.setAlpha(s);
+        show(musicLayer, musicAvailable() ? (1 - dc) * (1 - s) : 0, 0);
+        toastLayer.setTranslationY(musicAvailable() ? 170*k : 0);
+        show(youtubeLayer, youtubeVisible() ? (1 - dc) * (1 - s) : 0, 0);
         float scale = 1.04f - 0.04f * s;
         sheetLayer.setScaleX(scale);
         sheetLayer.setScaleY(scale);
@@ -727,8 +832,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         long minute = now / 60_000;
         if (minute == clockMinute || clockPaint == null) return false;
         clockMinute = minute;
-        clockText = Ui.clock(now);
-        dateText = Ui.date(now);
+        clockText = new SimpleDateFormat("h:mm a", Locale.US).format(new Date(now));
+        dateText = new SimpleDateFormat("EEE, MMM d", Locale.US).format(new Date(now));
         return true;
     }
 
@@ -937,7 +1042,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         lCardMeta.setColor(tone(L_DIM, 0xFF98989D));
         lQuote.setColor(tone(L_FAINT, 0xB8FFFFFF));
         lTip.setColor(tone(L_INK, WHITE));
-        lDate.setColor(tone(L_DIM, 0xFF98989D));
+        lDate.setColor(Prefs.liquidGlass() ? tone(0xFF45506B, 0xC4DFE8FF) : tone(L_DIM, 0xFF98989D));
         lClock.setColor(tone(L_INK, WHITE));
         lWeather.setColor(tone(L_DIM, 0xFF98989D));
         lClockQuote.setColor(tone(L_DIM, 0xFF98989D));
@@ -1113,12 +1218,35 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             retarget(true);
             layoutShelf();
         }
+        if (compactDock != (Prefs.macDock() && Prefs.liquidGlass())) layoutShelf();
         tilesDirty = true;
         platter.invalidate();
     }
 
     private void layoutShelf() {
         int n = shelf.size();
+        compactDock = Prefs.macDock() && Prefs.liquidGlass();
+        if (compactDock) {
+            float gap = 28 * DOCK_SIZE * k, pad = 28 * DOCK_SIZE * k;
+            float full = (CONTENT_R - MARGIN) * k;
+            // Reserve room for the magnified app and its neighbors, even with all eight shelf slots occupied.
+            float tw = Math.min(160 * DOCK_SIZE * k, (full - 2 * pad - Math.max(0, n - 1) * gap)
+                    / Math.max(1, n + DOCK_GROW * 1.92f));
+            float th = tw * 0.6f, width = n * tw + Math.max(0, n - 1) * gap;
+            float panelWidth = width + tw * DOCK_GROW * Math.min(1.92f, n) + 2 * pad;
+            platterRect.set((w - panelWidth) / 2, (1020 - 92 * DOCK_SIZE) * k, (w + panelWidth) / 2, 1020 * k);
+            float left = (w - width) / 2;
+            dockRects = new RectF[n];
+            for (int i = 0; i < n; i++) {
+                float bottom = (1020 - 18 * DOCK_SIZE) * k;
+                tileRects[i].set(left, bottom - th, left + tw, bottom);
+                dockRects[i] = new RectF(tileRects[i]);
+                left += tw + gap;
+            }
+            updateDockRects();
+            crispLogos.clear();
+            return;
+        }
         float pad = SHELF_PAD * k, gap = TILE_GAP * k, th = L_TILE_H * k;
         float full = (CONTENT_R - MARGIN) * k;
         float tw = Math.min(TILE_MAX_W * k, (full - Math.max(0, n - 1) * gap) / Math.max(1, n));
@@ -1133,15 +1261,45 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         crispLogos.clear();
     }
 
+    private float dockInfluence(int i) {
+        float amount = 0;
+        for (int j = Math.max(0, i - 2); j <= Math.min(tileFocus.length - 1, i + 2); j++) {
+            int distance = Math.abs(i - j);
+            float weight = distance == 0 ? 1 : distance == 1 ? 0.38f : 0.08f;
+            amount += Ui.clamp(tileFocus[j].value) * weight;
+        }
+        return Math.min(1.1f, amount);
+    }
+
+    /** Remote focus takes the pointer's role: spring magnification flows into adjacent tiles. */
+    private void updateDockRects() {
+        if (!compactDock || tileRects.length == 0) return;
+        float gap = 28 * DOCK_SIZE * k, total = Math.max(0, tileRects.length - 1) * gap;
+        for (int i = 0; i < tileRects.length; i++) total += tileRects[i].width() * (1 + DOCK_GROW * dockInfluence(i));
+        float left = (w - total) / 2;
+        for (int i = 0; i < tileRects.length; i++) {
+            float influence = dockInfluence(i), scale = 1 + DOCK_GROW * influence;
+            float tw = tileRects[i].width() * scale, th = tileRects[i].height() * scale;
+            float bottom = tileRects[i].bottom - 12 * DOCK_SIZE * k * influence;
+            dockRects[i].set(left, bottom - th, left + tw, bottom);
+            left += tw + gap;
+        }
+    }
+
     /** Shelf layer: the glass bar and its shadow (it only changes with the background). */
     private void drawPlatter(Canvas c) {
         if (shelf.isEmpty()) return;
-        float radius = (TILE_RADIUS + SHELF_PAD) * k;
+        float radius = (compactDock ? 36 * DOCK_SIZE : TILE_RADIUS + SHELF_PAD) * k;
         tmp.set(platterRect);
         tmp.offset(0, 18 * k);
         shadow.setColor(tone(0x1F000000, 0x52000000));
         shadows.draw(c, tmp, radius, SHADOW_BLUR * k, shadow);
         // White glass by day; smoked glass at night.
+        if (Prefs.liquidGlass()) {
+            scene.cachedLiquid(c, "home-dock", platterRect, platterRect, radius, tone(0xFFFFFFFF, SMOKE),
+                    tone(0.42f, 0.12f), tone(0.03f, 0.08f), 0, 1);
+            return;
+        }
         scene.liquid(c, platterRect, radius, tone(0xFFFFFFFF, SMOKE), tone(0.42f, 0.12f), tone(0.03f, 0.08f),
                 tone(30, 34) * k, tone(22, 28) * k, tone(0.65f, 0.95f), 1);
     }
@@ -1223,6 +1381,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void drawTiles(Canvas c) {
+        updateDockRects();
         // The focused one last: it grows over its neighbors without being covered by them.
         int top = -1;
         float most = 0.02f;
@@ -1246,11 +1405,28 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 }
                 c.save();
                 c.translate(dx, 0);
-                c.rotate(angle, tileRects[i].centerX(), tileRects[i].centerY());
+                RectF pivot = compactDock ? dockRects[i] : tileRects[i];
+                c.rotate(angle, pivot.centerX(), pivot.centerY());
                 drawShelfTile(c, i);
                 c.restore();
             }
         }
+        if (compactDock && top >= 0 && !reordering) drawDockLabel(c, top);
+    }
+
+    private void drawDockLabel(Canvas c, int i) {
+        float alpha = Ui.clamp(tileFocus[i].value);
+        if (alpha < 0.04f) return;
+        RectF icon = dockRects[i];
+        String name = shelf.get(i).label;
+        float width = dockLabel.measureText(name) + 36 * k, height = 44 * k;
+        float bottom = icon.top - 14 * k;
+        tmp.set(icon.centerX() - width / 2, bottom - height, icon.centerX() + width / 2, bottom);
+        tileFill.setShader(null);
+        tileFill.setColor(Ui.alpha(0xE6101A30, alpha));
+        c.drawRoundRect(tmp, 13 * k, 13 * k, tileFill);
+        dockLabel.setColor(Ui.alpha(WHITE, alpha));
+        c.drawText(name, icon.centerX(), tmp.centerY() + Ui.halfCap(dockLabel), dockLabel);
     }
 
     /**
@@ -1262,10 +1438,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         HomeApps.Item it = shelf.get(i);
         // Lifted to be moved: a little bigger than focused, with a deeper shadow.
         float l = i == liftIndex ? Math.max(0, moveLift.value) : 0;
-        float f = tileFocus[i].value, fc = Ui.clamp(f), s = 1 + FOCUS_GROW * f + LIFT_GROW * l;
         RectF base = tileRects[i];
-        float bw = base.width(), bh = base.height(), r0 = TILE_RADIUS * k;
-        float cx = base.centerX(), cy = base.centerY();
+        float f = tileFocus[i].value, fc = Ui.clamp(f);
+        float s = (compactDock ? dockRects[i].width() / base.width() : 1 + FOCUS_GROW * f) + LIFT_GROW * l;
+        float bw = base.width(), bh = base.height(), r0 = TILE_RADIUS * k * (compactDock ? DOCK_SIZE : 1);
+        RectF position = compactDock ? dockRects[i] : base;
+        float cx = position.centerX(), cy = position.centerY();
         cell.set(cx - bw * s / 2, cy - bh * s / 2, cx + bw * s / 2, cy + bh * s / 2);
         float r = r0 * s;
         // Shadow at the resting icon size, enlarged by the transform (so the blur stays cached): short at rest, deep
@@ -1279,6 +1457,29 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         shadows.draw(c, tmp, r0, DEEP_BLUR * k, shadowDeep);
         c.restore();
         int[] style = TILE_STYLE.get(it.key);
+        if (it.kind == HomeApps.ALL_APPS) {
+            if (Prefs.liquidGlass()) scene.cachedAppGlass(c, it.key, base, cell, r0, tone(0xFFFFFFFF, SMOKE),
+                    0.12f, 0.035f, fc, 0xFF233B61);
+            else {
+                tileFill.setShader(null); tileFill.setColor(0xFF233B61);
+                c.drawRoundRect(cell, r, r, tileFill);
+            }
+            Symbols.draw(getContext(), c, "apps", cx, cy, 54*k*s, WHITE);
+            return;
+        }
+        if (Prefs.liquidGlass()) {
+            scene.cachedAppGlass(c, it.key, base, cell, r0, tone(0xFFFFFFFF, SMOKE),
+                    0.12f, 0.035f, fc, selectedAppColor(it));
+            if (it.logo != null) {
+                drawLogo(c, it, cell, s, style != null ? style[2] : 0, "youtube".equals(it.key) ? fc : 0);
+            } else if (it.tile != null) {
+                tmp.set(cell);
+                tmp.inset(cell.width() * 0.1f, cell.height() * 0.15f);
+                roundImage(c, it.tile, tmp, r * 0.65f);
+            }
+            drawSpotifyIndicator(c, it, cell);
+            return;
+        }
         if (it.logo != null && style != null) {
             if (tileShaders.length != shelf.size() || tileShaderH != bh) {
                 tileShaders = new LinearGradient[shelf.size()];
@@ -1311,6 +1512,24 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             drawLogo(c, it, cell, s, 0);
         } else {
             if (it.tile != null) roundImage(c, it.tile, cell, r);
+        }
+        drawSpotifyIndicator(c, it, cell);
+    }
+
+    private void drawSpotifyIndicator(Canvas c, HomeApps.Item item, RectF tile) {
+        if (!SpotifyPlayback.PACKAGE.equals(item.pkg) || !spotify.present()) return;
+        musicInk.setColor(spotify.playing() ? 0xFF1ED760 : 0xB31ED760);
+        float bottom = tile.bottom - 10*k, center = tile.centerX();
+        if (spotify.playing()) {
+            float seconds = SystemClock.uptimeMillis()/1000f;
+            for (int i = 0; i < 5; i++) {
+                float height = (5 + 13 * (0.5f + 0.5f*(float)Math.sin(seconds*(4.3f+i*0.6f)+i*1.7f)))*k;
+                float left = center + (i-2)*7*k - 2*k;
+                c.drawRoundRect(left, bottom-height, left+4*k, bottom, 2*k, 2*k, musicInk);
+            }
+        } else {
+            c.drawRoundRect(center-6*k,bottom-10*k,center-2*k,bottom,1*k,1*k,musicInk);
+            c.drawRoundRect(center+2*k,bottom-10*k,center+6*k,bottom,1*k,1*k,musicInk);
         }
     }
 
@@ -1348,9 +1567,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * pixel, without resampling.
      */
     private void drawLogo(Canvas c, HomeApps.Item it, RectF box, float s, int mode) {
+        drawLogo(c, it, box, s, mode, 0);
+    }
+
+    private void drawLogo(Canvas c, HomeApps.Item it, RectF box, float s, int mode, float youtubeContrast) {
         Bitmap logo = crispLogo(it, mode == 2 && it.logoDark != null);
         if (logo == null) return;
-        float scale = s / (1 + FOCUS_GROW);
+        float scale = s / (1 + (compactDock ? DOCK_GROW : FOCUS_GROW));
         float dw = logo.getWidth() * scale, dh = logo.getHeight() * scale;
         float left = box.centerX() - dw / 2, top = box.centerY() - dh / 2;
         if (scale > 0.998f) {
@@ -1361,6 +1584,58 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         bitmapPaint.setColorFilter(mode == 1 ? whiteLogo : null);
         c.drawBitmap(logo, null, tmp, bitmapPaint);
         bitmapPaint.setColorFilter(null);
+        if (youtubeContrast > 0.001f) {
+            bitmapPaint.setAlpha(Math.round(255 * youtubeContrast));
+            c.drawBitmap(youtubeContrastLogo(logo), null, tmp, bitmapPaint);
+            bitmapPaint.setAlpha(255);
+        }
+    }
+
+    /** A white play badge with a red triangle stays distinct on the selected red tile. Cached at logo size. */
+    private Bitmap youtubeContrastLogo(Bitmap source) {
+        String key = "youtube-contrast@" + System.identityHashCode(source);
+        Bitmap cached = crispLogos.get(key);
+        if (cached != null) return cached;
+        int width = source.getWidth(), height = source.getHeight();
+        int[] pixels = new int[width * height];
+        source.getPixels(pixels, 0, width, 0, 0, width, height);
+        int left = width, top = height, right = -1, bottom = -1;
+        for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) {
+            int color = pixels[y * width + x];
+            int red = Color.red(color), green = Color.green(color), blue = Color.blue(color);
+            if (Color.alpha(color) > 0 && red > 160 && red > green * 1.4f && green < 150 && blue < 170) {
+                left = Math.min(left, x); top = Math.min(top, y);
+                right = Math.max(right, x); bottom = Math.max(bottom, y);
+            }
+        }
+        if (right < left || bottom < top) return source;
+        Bitmap out = source.copy(Bitmap.Config.ARGB_8888, true);
+        Canvas canvas = new Canvas(out);
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        RectF badge = new RectF(left, top, right + 1, bottom + 1);
+        p.setColor(Color.WHITE);
+        canvas.drawRoundRect(badge, badge.height() * 0.22f, badge.height() * 0.22f, p);
+        Path triangle = new Path();
+        triangle.moveTo(badge.centerX() - badge.width() * 0.10f, badge.centerY() - badge.height() * 0.23f);
+        triangle.lineTo(badge.centerX() + badge.width() * 0.19f, badge.centerY());
+        triangle.lineTo(badge.centerX() - badge.width() * 0.10f, badge.centerY() + badge.height() * 0.23f);
+        triangle.close();
+        p.setColor(0xFFFF0033);
+        canvas.drawPath(triangle, p);
+        crispLogos.put(key, out);
+        return out;
+    }
+
+    private static int selectedAppColor(HomeApps.Item item) {
+        switch (item.key) {
+            case "youtube": return 0xFFFF0033;
+            case "prime": return 0xFF087BCC;
+            case "netflix": case "spotify": return 0xFF000000;
+        }
+        if (item.pkg != null && item.pkg.contains("hotstar")) return 0xFF101C56;
+        if ("com.tcl.MultiScreenInteraction_TV".equals(item.pkg)) return 0xFFAD2828;
+        int[] style = TILE_STYLE.get(item.key);
+        return style == null ? 0xFF14141A : style[0];
     }
 
     private Bitmap crispLogo(HomeApps.Item it, boolean dark) {
@@ -1369,7 +1644,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         String key = it.key + "@" + System.identityHashCode(src) + "@" + Math.round(tileRects[0].width());
         Bitmap cached = crispLogos.get(key);
         if (cached != null) return cached;
-        float bw = tileRects[0].width() * (1 + FOCUS_GROW), bh = tileRects[0].height() * (1 + FOCUS_GROW);
+        float grow = 1 + (compactDock ? DOCK_GROW : FOCUS_GROW);
+        float bw = tileRects[0].width() * grow, bh = tileRects[0].height() * grow;
         float lw = src.getWidth(), lh = src.getHeight();
         float scale = (float) Math.sqrt(bw * bh * 0.085f / (lw * lh * Math.max(0.08f, it.logoInk))) * it.logoScale;
         scale = Math.min(scale, Math.min(bw * 0.76f / lw, bh * 0.58f / lh));
@@ -1396,9 +1672,14 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     // MARK: - Bottom drawer
 
     private static List<HomeApps.Item> drawerList(Context c) {
-        List<HomeApps.Item> list = HomeApps.allInputs(c);
-        list.addAll(HomeApps.drawerShortcuts());
+        List<HomeApps.Item> list = new ArrayList<>();
+        if (Prefs.inputs()) list.addAll(HomeApps.allInputs(c));
+        if (Prefs.shortcuts()) list.addAll(HomeApps.drawerShortcuts());
         return list;
+    }
+
+    private boolean hasDrawerWidgets() {
+        return Prefs.weather() || (Prefs.quotes() && HomeData.active().length > 0);
     }
 
     private void setDrawerItems(List<HomeApps.Item> list) {
@@ -1421,6 +1702,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             retarget(true);
         }
         layoutDrawer();
+        if (drawerOpen && list.isEmpty()) {
+            if (hasDrawerWidgets()) {
+                zone = WIDGETS;
+                widgetIndex = Prefs.weather() ? 0 : 1;
+            } else {
+                closeDrawer();
+            }
+            retarget(true);
+        }
         if (!same) drawerDirty = true;
     }
 
@@ -1436,7 +1726,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             drawerRects[i].set(x, top, x + tw, top + ROW_H * k);
             x += tw + gap;
         }
-        float cardsTop = CARDS_TOP * k, split = left + (right - left) * 0.585f;
+        float cardsTop = (n == 0 ? ROW_TOP : CARDS_TOP) * k, split = left + (right - left) * 0.585f;
         boolean wx = Prefs.weather(), qt = Prefs.quotes() && HomeData.active().length > 0;
         // A card that is off gives its room to the other one.
         weatherCard.set(left, cardsTop, qt ? split - 16 * k : right, cardsTop + CARDS_H * k);
@@ -1445,10 +1735,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void openDrawer() {
-        if (drawerItems.isEmpty()) return;
+        if (drawerItems.isEmpty() && !hasDrawerWidgets()) return;
         drawerOpen = true;
         drawer.target = 1;
-        zone = Z_DRAWER;
+        zone = drawerItems.isEmpty() ? WIDGETS : Z_DRAWER;
+        if (drawerItems.isEmpty()) widgetIndex = Prefs.weather() ? 0 : 1;
         drawerIndex = shelf.isEmpty() ? 0 : nearest(drawerRects, tileRects[shelfIndex].centerX());
         for (int i = 0; i < drawerFocus.length; i++) drawerFocus[i].snap(i == drawerIndex ? 1 : 0);
         drawerDirty = true;
@@ -1485,7 +1776,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void drawDrawer(Canvas c) {
-        if (drawerItems.isEmpty()) return;
+        if (drawerItems.isEmpty() && !hasDrawerWidgets()) return;
         rowTitle.setColor(tone(L_DIM, 0xB3FFFFFF));
         cardTitle.setColor(tone(L_DIM, 0xB3FFFFFF));
         cardText.setColor(drawerInk(0.95f));
@@ -1706,6 +1997,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         statusDirty |= snap || statusChanged;
         heroDirty |= snap || heroChanged;
         drawerDirty |= snap || drawerChanged;
+        spotifyWidget.expanded(!sheetOpen && zone == Z_MUSIC, snap);
+        musicLayer.invalidate();
+        youtubeLayer.invalidate();
+        motionDirty = true;
         spoken.focusMoved();
     }
 
@@ -1766,9 +2061,11 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     }
 
     private void drawSheet(Canvas c) {
-        c.drawColor(0xA8000000);
+        c.drawColor(0xB8101827);
         float shift = scroll.value * GRID_ROW * k;
-        c.drawText(Ui.tr("Todos os Apps", "All Apps"), w / 2f, 124 * k - shift, sheetTitle);
+        c.drawText(Ui.tr("Todos os Apps", "All Apps"), w / 2f, 124 * k, sheetTitle);
+        c.save();
+        c.clipRect(80*k, 180*k, 1840*k, 912*k);
         int n = others.size();
         if (gridLabels == null || gridLabels.length != n) {
             gridLabels = new String[n];
@@ -1791,6 +2088,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             gridLabel.setColor(blend(0x99FFFFFF, 0xFFFFFFFF, Ui.clamp(f)));
             c.drawText(gridLabels[i], gridCell.centerX(), gridCell.bottom + (40 + 6 * f) * k, gridLabel);
         }
+        c.restore();
+        gridLabel.setColor(0xB8FFFFFF);
+        String hint = Ui.tr("Voltar para fechar", "Back to close") + "  \u00b7  " + (n == 0 ? "0" : String.valueOf(gridIndex + 1)) + " / " + n;
+        c.drawText(hint, w/2f, 996*k, gridLabel);
     }
 
     /** 16:9 sheet card. Focused (the shelf's subtle focus): it grows, with a shadow, a soft sheen and a thin border. */
@@ -2031,7 +2332,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                         return;
                     }
                 } else {
-                    if (drawerItems.isEmpty()) return;
+                    if (drawerItems.isEmpty() && !hasDrawerWidgets()) return;
                     openDrawer();
                 }
                 break;
@@ -2066,7 +2367,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 List<Integer> on = widgets();
                 int at = on.indexOf(widgetIndex);
                 if (dy < 0 || at < 0) {
-                    zone = Z_DRAWER;
+                    if (drawerItems.isEmpty()) closeDrawer();
+                    else zone = Z_DRAWER;
                 } else if (dx != 0 && at + dx >= 0 && at + dx < on.size()) {
                     widgetIndex = on.get(at + dx);
                 } else {
@@ -2135,6 +2437,22 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         HomeApps.Item it;
         RectF r;
+        if (!sheetOpen && zone == Z_YOUTUBE) {
+            List<YouTubeHistory.Video> videos = youtube.videos();
+            if (youtubeIndex < videos.size() && !youtube.open(activity, videos.get(youtubeIndex)))
+                showToast(Ui.tr("Não foi possível abrir o YouTube", "Couldn't open YouTube."));
+            click.open();
+            return;
+        }
+        if (!sheetOpen && zone == Z_MUSIC) {
+            if (!spotify.hasAccess()) {
+                if (!spotify.openAccessSettings(activity)) showToast(Ui.tr("Ajuste indisponível nesta TV", "This TV does not expose notification access settings."));
+            } else if (!spotify.activate(musicIndex)) {
+                showToast(Ui.tr("Controle indisponível no Spotify", "This control is unavailable in Spotify."));
+            }
+            click.open();
+            return;
+        }
         if (!sheetOpen && zone == WIDGETS) return;   // a widget is only read
         if (sheetOpen) {
             if (others.isEmpty()) return;
@@ -2168,7 +2486,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         } else {
             if (shelf.isEmpty()) return;
             it = shelf.get(shelfIndex);
-            r = tileRects[shelfIndex];
+            r = compactDock ? dockRects[shelfIndex] : tileRects[shelfIndex];
         }
         click.open();
         if (it.kind == HomeApps.ALL_APPS) {
@@ -2176,6 +2494,10 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             return;
         }
         if (it.kind == HomeApps.INPUTS) {
+            if (!Prefs.inputs()) {
+                showToast(Ui.tr("Ative a seção de entradas nos Ajustes do Início.", "Enable Inputs section in Home Settings."));
+                return;
+            }
             openDrawer();
             for (int i = 0; i < drawerItems.size(); i++) {
                 if (drawerItems.get(i).kind == HomeApps.INPUT) {
@@ -2255,7 +2577,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     /** Swaps the lifted app with its neighbor; both slide from where they are to their new slots. */
     private void shiftReorder(int dx) {
         int i = shelfIndex, j = i + dx;
-        if (j < 0 || j >= shelf.size()) return;
+        if (j < 0 || j >= shelf.size() || shelf.get(j).kind != HomeApps.APP) return;
         HomeApps.Item it = shelf.get(i);
         shelf.set(i, shelf.get(j));
         shelf.set(j, it);
@@ -2292,7 +2614,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         retarget(false);
         if (!changed) return;
         final List<String> order = new ArrayList<>();
-        for (HomeApps.Item it : shelf) order.add(it.pkg);
+        for (HomeApps.Item it : shelf) if (it.kind == HomeApps.APP && it.pkg != null) order.add(it.pkg);
         final Context c = getContext().getApplicationContext();
         LOADER.execute(() -> {
             // The saved list may hold more than the shelf shows (apps not installed, past the limit): the shown ones
@@ -2383,6 +2705,12 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         for (int i = picksOn() ? 0 : 3; i < 3 + lightButtons.size(); i++) out.add(a11yId(Z_TOP, i));
         for (int i = 0; i < Math.min(3, cards.size()); i++) out.add(a11yId(Z_CARDS, i));
+        if (youtubeVisible() && !drawerOpen)
+            for (int i = 0; i < youtubeShelf.size(); i++) out.add(a11yId(Z_YOUTUBE, i));
+        if (musicAvailable() && !drawerOpen) {
+            if (spotify.hasAccess() && zone == Z_MUSIC) for (int i = 0; i < 3; i++) out.add(a11yId(Z_MUSIC, i));
+            else out.add(a11yId(Z_MUSIC, 1));
+        }
         for (int i = 0; i < shelf.size(); i++) out.add(a11yId(Z_SHELF, i));
         for (int i = 0; i < drawerItems.size(); i++) out.add(a11yId(Z_DRAWER, i));
         if (drawerOpen && Prefs.weather()) out.add(a11yId(WIDGETS, 0));
@@ -2399,6 +2727,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 if (i >= 3) return label(lightButtons, i - 3);
                 return tabs()[i] + Ui.tr(", aba ", ", tab ") + (i + 1) + Ui.tr(" de 3", " of 3");
             case Z_CARDS: return i < cards.size() ? pickText(cards.get(i)) : "";
+            case Z_MUSIC: return spotifyWidget.controlText(i);
+            case Z_YOUTUBE: return youtubeShelf.description(i);
             case Z_SHELF:
                 if (reordering && i == shelfIndex) {
                     return Ui.tr("Movendo ", "Moving ", "Moviendo ") + label(shelf, i)
@@ -2419,6 +2749,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         int group = (id - 1) / 1000, i = (id - 1) % 1000;
         float dy;
         switch (group) {
+            case Z_YOUTUBE:
+                if (!youtubeVisible() || drawerOpen || i < 0 || i >= youtubeShelf.size()) return false;
+                a11yRect.set(youtubeShelf.bounds(i));
+                dy = 0;
+                break;
+            case Z_MUSIC:
+                if (!musicAvailable() || drawerOpen || i < 0 || i > 2 || (!spotify.hasAccess() && i != 1)) return false;
+                a11yRect.set(spotifyWidget.bounds(i));
+                dy = 0;
+                break;
             case GRID: {
                 if (!sheetOpen || i >= others.size()) return false;
                 float gridWidth = COLUMNS * GRID_W + (COLUMNS - 1) * GRID_GAP;
@@ -2440,7 +2780,7 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 break;
             case Z_SHELF:
                 if (i >= tileRects.length) return false;
-                a11yRect.set(tileRects[i]);
+                a11yRect.set(compactDock ? dockRects[i] : tileRects[i]);
                 dy = tiles.getTranslationY();
                 break;
             case Z_DRAWER:
@@ -2467,6 +2807,8 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
     private int a11yFocused() {
         if (sheetOpen) return others.isEmpty() ? -1 : a11yId(GRID, gridIndex);
         switch (zone) {
+            case Z_MUSIC: return a11yId(Z_MUSIC, musicIndex);
+            case Z_YOUTUBE: return a11yId(Z_YOUTUBE, youtubeIndex);
             case Z_TOP: return a11yId(Z_TOP, topIndex);
             case Z_CARDS: return cardIndex < cards.size() ? a11yId(Z_CARDS, cardIndex) : -1;
             case Z_SHELF: return shelf.isEmpty() ? -1 : a11yId(Z_SHELF, shelfIndex);
@@ -2506,6 +2848,16 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
         }
         if (sheetOpen || reordering) return;
         switch (group) {
+            case Z_YOUTUBE:
+                if (!youtubeVisible() || i < 0 || i >= youtubeShelf.size()) return;
+                if (drawerOpen) closeDrawer();
+                youtubeIndex = i;
+                break;
+            case Z_MUSIC:
+                if (!musicAvailable() || i < 0 || i > 2 || (!spotify.hasAccess() && i != 1)) return;
+                if (drawerOpen) closeDrawer();
+                musicIndex = i;
+                break;
             case Z_DRAWER:
                 if (i >= drawerItems.size()) return;
                 if (!drawerOpen) openDrawer();
@@ -2639,6 +2991,15 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
      * same photo almost black (or a dark gradient), drawn on top during the transition.
      */
     private void drawLightSky(Canvas c) {
+        if (Prefs.liquidGlass()) {
+            if (animatedWallpaper.ready()) {
+                c.drawColor(Ui.alpha(0xFF071626, 0.04f + 0.12f * Ui.clamp(dark())));
+            } else {
+                scene.drawLiquidBackground(c, dark());
+            }
+            if (drawer.value > 0.001f) c.drawColor(Ui.alpha(0xFF0C1830, 0.22f * Ui.clamp(drawer.value)));
+            return;
+        }
         long up = SystemClock.uptimeMillis();
         float e = bgFadeAt == 0 ? 1 : fadeEase(bgFadeAt, up);
         boolean fading = bgFadeAt != 0;
@@ -2719,8 +3080,17 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private void drawClock(Canvas c) {
         float x = MARGIN * k;
-        c.drawText(dateText, x - Ui.leftBearing(lDate, dateText), L_DATE_BASE * k, lDate);
-        c.drawText(clockText, x - Ui.leftBearing(lClock, clockText), L_CLOCK_BASE * k, lClock);
+        // Share the corner buttons' center line, with time and date together at the left safe margin.
+        float clockBase = L_BUTTON_CY * k + Ui.halfCap(lClock);
+        float dateBase = L_BUTTON_CY * k + Ui.halfCap(lDate);
+        float clockX = x - Ui.leftBearing(lClock, clockText);
+        if (Prefs.liquidGlass()) {
+            scene.drawLiquidClock(c, clockText, clockX, clockBase, lClock, dark());
+        } else {
+            c.drawText(clockText, clockX, clockBase, lClock);
+        }
+        float dateX = clockX + lClock.measureText(clockText) + 28 * k;
+        c.drawText(dateText, dateX - Ui.leftBearing(lDate, dateText), dateBase, lDate);
         HomeData.Weather wx = data.weather;
         if (!Prefs.weather() || Double.isNaN(wx.temp)) return;
         if (data.weatherAt != weatherLineAt || Prefs.version != weatherLinePrefs || !Ui.language.equals(weatherLineLanguage)) {
@@ -2821,8 +3191,13 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
             tmp.offset(0, (6 + 8 * f) * k);
             shadow.setColor(Ui.alpha(0xFF000000, tone(0.1f, 0.3f) + tone(0.14f, 0.2f) * f));
             shadows.draw(c, tmp, rad, SHADOW_BLUR * k, shadow);
-            scene.liquid(c, cell, rad, tone(0xFFFFFFFF, SMOKE), tone(0.55f, 0.5f), tone(0.02f, 0.01f), 12 * k, 8 * k,
-                    tone(0.6f, 0.45f), 1 - f);
+            if (Prefs.liquidGlass()) {
+                scene.cachedLiquid(c, lightButtons.get(i).key, r, cell, r.width() / 2, tone(0xFFFFFFFF, SMOKE),
+                        tone(0.55f, 0.5f), tone(0.02f, 0.01f), 0, 1 - f);
+            } else {
+                scene.liquid(c, cell, rad, tone(0xFFFFFFFF, SMOKE), tone(0.55f, 0.5f), tone(0.02f, 0.01f), 12 * k, 8 * k,
+                        tone(0.6f, 0.45f), 1 - f);
+            }
             if (f > 0.01f) {
                 fill.setShader(null);
                 fill.setColor(Ui.alpha(0xFFFFFFFF, f));
@@ -2842,9 +3217,31 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
 
     private boolean moveLight(int dx, int dy) {
         switch (zone) {
+            case Z_YOUTUBE:
+                if (dy > 0) zone = Z_SHELF;
+                else if (dy < 0) {
+                    if (musicAvailable()) { zone = Z_MUSIC; musicIndex = 1; }
+                    else { zone = Z_TOP; topIndex = 3; }
+                }
+                else if (dx != 0) youtubeIndex = Math.max(0, Math.min(youtubeShelf.size()-1, youtubeIndex+dx));
+                break;
+            case Z_MUSIC:
+                if (dy > 0) {
+                    if (youtubeSelected() && youtubeShelf.size() > 0) zone = Z_YOUTUBE;
+                    else zone = Z_SHELF;
+                } else if (dx > 0 && (!spotify.hasAccess() || musicIndex == 2)) {
+                    zone = Z_TOP; topIndex = 3;
+                } else if (dx != 0 && spotify.hasAccess()) musicIndex = Math.max(0, Math.min(2, musicIndex + dx));
+                break;
             case Z_SHELF:
                 if (dy >= 0 || shelf.isEmpty()) return false;
-                if (cards.isEmpty()) {
+                if (youtubeVisible() && youtubeShelf.size() > 0) {
+                    zone = Z_YOUTUBE;
+                    youtubeIndex = 0;
+                } else if (musicAvailable()) {
+                    zone = Z_MUSIC;
+                    musicIndex = 1;
+                } else if (cards.isEmpty()) {
                     zone = Z_TOP;
                     topIndex = picksOn() ? tab : 3;
                 } else {
@@ -2866,13 +3263,17 @@ final class HomeView extends ViewGroup implements Choreographer.FrameCallback, H
                 }
                 break;
             case Z_TOP:
-                if (dx != 0) {
+                if (dx < 0 && topIndex == 3 && musicAvailable()) {
+                    zone = Z_MUSIC; musicIndex = spotify.hasAccess() ? 2 : 1;
+                } else if (dx != 0) {
                     int next = Math.max(picksOn() ? 0 : 3, Math.min(5, topIndex + dx));
                     if (next == topIndex) return true;
                     topIndex = next;
                     if (topIndex < 3) selectTab(topIndex);   // like Apple TV tabs: focusing a tab selects it
                 } else if (dy > 0) {
-                    if (cards.isEmpty()) {
+                    if (!picksOn() && youtubeSelected() && youtubeShelf.size() > 0) {
+                        zone = Z_YOUTUBE;
+                    } else if (cards.isEmpty()) {
                         zone = Z_SHELF;
                     } else {
                         zone = Z_CARDS;

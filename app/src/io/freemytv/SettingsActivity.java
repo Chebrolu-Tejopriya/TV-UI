@@ -122,7 +122,7 @@ public class SettingsActivity extends Activity {
         private final SettingsActivity activity;
         private final Scene scene = new Scene();
         private final Handler handler = new Handler(Looper.getMainLooper());
-        private final Spring[] pop = new Spring[12];
+        private final Spring[] pop;
         private final List<String> appPkgs = new ArrayList<>(), appLabels = new ArrayList<>();
         // The list picker (the app of a remote button): what it shows, which one is in use, where we are.
         private final List<String> pickLabels = new ArrayList<>();
@@ -170,6 +170,7 @@ public class SettingsActivity extends Activity {
         SettingsView(SettingsActivity a) {
             super(a);
             activity = a;
+            pop = new Spring[Math.max(12, settingLabels().length)];
             for (int i = 0; i < pop.length; i++) pop[i] = new Spring(0.28f, 0.85f, 0);
             HomeData.Weather wx = HomeData.get(a).weather;
             Shaders.sky(scene.palette, System.currentTimeMillis(), wx.sunrise, wx.sunset);
@@ -253,8 +254,8 @@ public class SettingsActivity extends Activity {
                 top = LIST_TOP + 20 + row * (CHOICE_H + ROW_GAP);
                 height = CHOICE_H;
             } else {
-                top = LIST_TOP + 20 + row * (LIST_ROW_H + LIST_ROW_GAP);
-                height = LIST_ROW_H;
+                height = listRowHeight();
+                top = LIST_TOP + 20 + row * (height + LIST_ROW_GAP);
             }
             focusBox.set(LIST_X * k, top * k, LIST_R * k, (top + height) * k);
             return focusBox;
@@ -625,8 +626,14 @@ public class SettingsActivity extends Activity {
         // MARK: - Home Settings and Remote Buttons
 
         private static final String[] LANGUAGES = {"auto", "pt", "en", "es", "de", "ru"}, UNITS = {"auto", "C", "F"}, THEMES = {"auto", "light", "dark"};
-        /** Home Settings: language, temperature, theme, weather, quotes, then one row per coin. */
-        private static final int CITY_ROW = 4, COIN_ROWS = 6;
+        /** Home Settings: appearance, widgets, drawer sections, then one row per coin. */
+        private static final int GLASS_ROW = 3, BACKGROUND_ROW = 4, DOCK_ROW = 5, SPOTIFY_ROW = 6, WEATHER_ROW = 7, CITY_ROW = 8, QUOTES_ROW = 9,
+                INPUTS_ROW = 10, SHORTCUTS_ROW = 11, COIN_ROWS = 12;
+
+        private float listRowHeight() {
+            // Keep every setting and the key hint visible, including the optional currency row.
+            return screen == HOME_SETTINGS ? Math.min(LIST_ROW_H, 740f / settingLabels().length - LIST_ROW_GAP) : LIST_ROW_H;
+        }
 
         private boolean dollar() {
             return "BRL".equalsIgnoreCase(Config.CURRENCY.trim());
@@ -637,9 +644,15 @@ public class SettingsActivity extends Activity {
             l.add(Ui.tr("Idioma", "Language"));
             l.add(Ui.tr("Temperatura", "Temperature"));
             l.add(Ui.tr("Tema", "Theme"));
+            l.add(Ui.tr("Estilo do vidro", "Glass style"));
+            l.add(Ui.tr("Fundo do vidro", "Glass background"));
+            l.add(Ui.tr("Estilo do dock", "Dock style"));
+            l.add(Ui.tr("Widget do Spotify", "Spotify widget"));
             l.add(Ui.tr("Widget do clima", "Weather widget"));
             l.add(Ui.tr("Cidade", "City"));
             l.add(Ui.tr("Widget de cotações", "Quotes widget"));
+            l.add(Ui.tr("Seção de entradas", "Inputs section"));
+            l.add(Ui.tr("Seção de atalhos", "Shortcuts section"));
             l.add("Bitcoin");
             l.add("Ethereum");
             l.add("Solana");
@@ -657,9 +670,17 @@ public class SettingsActivity extends Activity {
             v[1] = unit.equals("C") ? "°C" : unit.equals("F") ? "°F" : Ui.tr("Automática", "Automatic");
             String theme = Prefs.theme();
             v[2] = theme.equals("light") ? Ui.tr("Claro", "Light") : theme.equals("dark") ? Ui.tr("Escuro", "Dark") : Ui.tr("Automático", "Automatic");
-            v[3] = onOff(Prefs.weather());
+            v[GLASS_ROW] = Prefs.liquidGlass() ? "Liquid Glass" : Ui.tr("Padrão", "Default");
+            v[BACKGROUND_ROW] = Prefs.skyWallpaper()
+                    ? (Prefs.wallpaperMotion() ? Ui.tr("Flores animadas", "Animated flowers") : Ui.tr("Flores e céu (parado)", "Flowers & sky (still)"))
+                    : Ui.tr("Padrão", "Default");
+            v[DOCK_ROW] = Prefs.macDock() ? Ui.tr("Compacto", "Compact") : Ui.tr("Padrão", "Standard");
+            v[SPOTIFY_ROW] = onOff(Prefs.spotifyWidget());
+            v[WEATHER_ROW] = onOff(Prefs.weather());
             v[CITY_ROW] = !cityStatus.isEmpty() ? cityStatus : Prefs.city().isEmpty() ? "—" : Prefs.city();
-            v[5] = onOff(Prefs.quotes());
+            v[QUOTES_ROW] = onOff(Prefs.quotes());
+            v[INPUTS_ROW] = onOff(Prefs.inputs());
+            v[SHORTCUTS_ROW] = onOff(Prefs.shortcuts());
             // No quotes widget, nowhere to show prices: the coins read as off (and stay locked) until it is back on.
             for (int i = COIN_ROWS; i < v.length; i++) v[i] = onOff(Prefs.quotes() && Prefs.coin(i - COIN_ROWS));
             return v;
@@ -731,9 +752,21 @@ public class SettingsActivity extends Activity {
                     Prefs.setTheme(THEMES[(at + dir + THEMES.length) % THEMES.length]);
                     break;
                 }
-                case 3: Prefs.setWeather(!Prefs.weather()); break;
+                case GLASS_ROW: Prefs.setLiquidGlass(!Prefs.liquidGlass()); break;
+                case BACKGROUND_ROW: {
+                    int at = !Prefs.skyWallpaper() ? 0 : Prefs.wallpaperMotion() ? 2 : 1;
+                    int next = (at + dir + 3) % 3;
+                    Prefs.setWallpaperMotion(next == 2);
+                    Prefs.setSkyWallpaper(next != 0);
+                    break;
+                }
+                case DOCK_ROW: Prefs.setMacDock(!Prefs.macDock()); break;
+                case SPOTIFY_ROW: Prefs.setSpotifyWidget(!Prefs.spotifyWidget()); break;
+                case WEATHER_ROW: Prefs.setWeather(!Prefs.weather()); break;
                 case CITY_ROW: return;
-                case 5: Prefs.setQuotes(!Prefs.quotes()); break;
+                case QUOTES_ROW: Prefs.setQuotes(!Prefs.quotes()); break;
+                case INPUTS_ROW: Prefs.setInputs(!Prefs.inputs()); break;
+                case SHORTCUTS_ROW: Prefs.setShortcuts(!Prefs.shortcuts()); break;
                 default:
                     if (!Prefs.quotes()) return;
                     Prefs.setCoin(focus - COIN_ROWS, !Prefs.coin(focus - COIN_ROWS));
@@ -923,12 +956,13 @@ public class SettingsActivity extends Activity {
             boolean keys = screen == REMOTE_KEYS;
             String[] labels = keys ? keyLabels() : settingLabels();
             String[] values = keys ? keyValues() : settingValues();
+            float rowHeight = listRowHeight();
             Paint heading = Ui.text(Ui.displaySemibold, 34 * k, 0xFFFFFFFF);
             c.drawText(keys ? Ui.tr("Botões do Controle", "Remote Buttons") : Ui.tr("Ajustes do Início", "Home Settings"),
                     LIST_X * k + 30 * k, (LIST_TOP - 24) * k, heading);
             for (int i = 0; i < labels.length; i++) {
-                float y = (LIST_TOP + 20 + i * (LIST_ROW_H + LIST_ROW_GAP)) * k;
-                rowRect.set(LIST_X * k, y, LIST_R * k, y + LIST_ROW_H * k);
+                float y = (LIST_TOP + 20 + i * (rowHeight + LIST_ROW_GAP)) * k;
+                rowRect.set(LIST_X * k, y, LIST_R * k, y + rowHeight * k);
                 float f = drawRowBackground(c, i);
                 rowLabel.setColor(blend(0xF2FFFFFF, INK, f));
                 boolean locked = !keys && i >= COIN_ROWS && !Prefs.quotes();
@@ -939,7 +973,7 @@ public class SettingsActivity extends Activity {
                 c.drawText(values[i], rowRect.right - 30 * k, base, rowValue);
             }
             Paint hint = Ui.text(Ui.regular, 23 * k, 0x8CFFFFFF);
-            float hy = (LIST_TOP + 20 + labels.length * (LIST_ROW_H + LIST_ROW_GAP) + 36) * k;
+            float hy = (LIST_TOP + 20 + labels.length * (rowHeight + LIST_ROW_GAP) + 36) * k;
             c.drawText(Ui.tr("OK ou as setas mudam o valor.", "OK or the arrows change the value."), LIST_X * k + 30 * k, hy, hint);
             if (keys) {
                 c.drawText(RemoteKeys.VESTEL ? Ui.tr("YouTube, Prime Video e Google Play: a própria TV controla esses botões.",

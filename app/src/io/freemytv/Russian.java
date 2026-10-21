@@ -13,6 +13,16 @@ final class Russian {
 
     static String text(String english) {
         switch (english) {
+            case "Glass style": return "Стиль стекла";
+            case "Glass background": return "Фон стекла";
+            case "Dock style": return "Стиль док-панели";
+            case "Compact": return "Компактный";
+            case "Standard": return "Стандартный";
+            case "Flowers & sky": return "Цветы и небо";
+            case "Default": return "По умолчанию";
+            case "Inputs section": return "Раздел входов";
+            case "Shortcuts section": return "Раздел ярлыков";
+            case "Enable Inputs section in Home Settings.": return "Включите раздел входов в настройках главного экрана.";
             case "Live TV": return "Телеканалы";
             case "All Apps": return "Приложения";
             case "Settings": return "Настройки";

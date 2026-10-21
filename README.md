@@ -1,3 +1,31 @@
+# TV-UI
+
+A customized Android TV launcher based on [Free My TV](https://github.com/simbasjungles/free-my-tv), tested on a TCL Android 9 TV (firmware V8-R851T02-LF1V620.018337). The native Android app requires **Android 9 / API 28 or newer**. Upstream's license and source history are retained.
+
+This version adds a Liquid Glass appearance, a larger compact dock with brand-colored focus tiles, a flower wallpaper, and a centered Spotify Dynamic Island with playback controls. The header uses a compact date and 12-hour time with AM/PM. Selecting YouTube reveals up to three locally observed recent videos. More Apps opens a centered, scrolling four-column app grid. TCL mirroring packages are preserved by the mode switch.
+
+The preferred background is **Flowers & sky (still)**. Optional video playback remains available in Home Settings, but motion defaults off. This repository contains source and artwork; signing keys, private configuration, local backups, build output, and TV playback-history data are excluded.
+
+## Build on Windows
+
+Install Python 3, JDK 17, and Android SDK Platform 34 plus Build Tools 34.0.0. ADB is needed only to install or connect to a TV. The build script does not change the TV.
+
+```powershell
+git clone https://github.com/Chebrolu-Tejopriya/TV-UI.git
+cd TV-UI
+.\build-windows.ps1 -JdkRoot 'C:\path\to\jdk-17' -SdkRoot "$env:LOCALAPPDATA\Android\Sdk"
+```
+
+The first build creates a local `config.properties` from the example and a local signing keystore if absent. Keep your signing key backed up privately: updating an existing installation requires its original key. The script compiles, signs, and verifies `FreeMyTV.apk`; install it only after reviewing the upstream mode-switch behavior below.
+
+On the TV, Home Settings provides **Glass style > Liquid Glass**, **Dock style > Compact**, and **Glass background > Flowers & sky (still)**. Use Shelf to choose installed apps and their order. Spotify controls and YouTube recents require the explicitly enabled **Free My TV - Media controls** notification access. YouTube recents begin when this launcher observes playback; on the tested YouTube version, selecting a card opens a title search rather than direct video playback.
+
+See [dock design](dock-design.md), [Spotify controls](spotify-controls.md), [YouTube and More Apps](youtube-more-apps.md), and [wallpaper playback](flower-animation.md) for implementation details and limits.
+
+## Upstream documentation
+
+The following documentation describes the original Free My TV project, including its broader platforms and installation flow.
+
 <div align="center">
 
 <img src="docs/assets/icon-512.png" width="96" alt="">

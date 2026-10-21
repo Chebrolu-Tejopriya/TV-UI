@@ -35,6 +35,8 @@ final class Prefs {
 
     static void init(Context c) {
         app = c.getApplicationContext();
+        Wallpaper.init(app);
+        if (skyWallpaper()) Wallpaper.load();
         migrateKeys();   // before anything reads the button choices
         Ui.applyLanguage();   // the language picked on the TV, now that it can be read
     }
@@ -81,6 +83,24 @@ final class Prefs {
 
     static void setTheme(String v) { put("theme", v); }
 
+    /** Optional appearance only; turning it off restores the existing renderer. */
+    static boolean liquidGlass() { return sp().getBoolean("liquidGlass", false); }
+    static void setLiquidGlass(boolean on) { put("liquidGlass", on); }
+
+    static boolean macDock() { return sp().getBoolean("macDock", false); }
+    static void setMacDock(boolean on) { put("macDock", on); }
+
+    static boolean spotifyWidget() { return sp().getBoolean("spotifyWidget", true); }
+    static void setSpotifyWidget(boolean on) { put("spotifyWidget", on); }
+
+    static boolean skyWallpaper() { return sp().getBoolean("skyWallpaper", false); }
+    static boolean wallpaperMotion() { return sp().getBoolean("wallpaperMotion", false); }
+    static void setWallpaperMotion(boolean on) { put("wallpaperMotion", on); }
+    static void setSkyWallpaper(boolean on) {
+        if (on && !Wallpaper.load()) return;
+        put("skyWallpaper", on);
+    }
+
     // MARK: - City
 
     static String city() { return sp().getString("city", Config.CITY).trim(); }
@@ -99,6 +119,12 @@ final class Prefs {
 
     static boolean quotes() { return sp().getBoolean("quotes", Config.SHOW_CRYPTO); }
     static void setQuotes(boolean on) { put("quotes", on); }
+
+    static boolean inputs() { return sp().getBoolean("drawerInputs", true); }
+    static void setInputs(boolean on) { put("drawerInputs", on); }
+
+    static boolean shortcuts() { return sp().getBoolean("drawerShortcuts", true); }
+    static void setShortcuts(boolean on) { put("drawerShortcuts", on); }
 
     static boolean coin(int i) { return sp().getBoolean("coin" + i, true); }
     static void setCoin(int i, boolean on) { put("coin" + i, on); }

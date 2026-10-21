@@ -6,6 +6,16 @@ final class Spanish {
 
     static String text(String english) {
         switch (english) {
+            case "Glass style": return "Estilo del cristal";
+            case "Glass background": return "Fondo del cristal";
+            case "Dock style": return "Estilo del dock";
+            case "Compact": return "Compacto";
+            case "Standard": return "Estándar";
+            case "Flowers & sky": return "Flores y cielo";
+            case "Default": return "Predeterminado";
+            case "Inputs section": return "Sección de entradas";
+            case "Shortcuts section": return "Sección de accesos directos";
+            case "Enable Inputs section in Home Settings.": return "Activa la sección de entradas en Ajustes de inicio.";
             case "Live TV": return "TV en vivo";
             case "All Apps": return "Todas las apps";
             case "Settings": return "Ajustes";

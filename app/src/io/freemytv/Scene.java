@@ -37,6 +37,8 @@ final class Scene {
     private Bitmap frostImage, glassA, glassB;
     private BitmapShader glassShaderA;
     private final boolean withGlass;
+    private final LiquidStyle liquidStyle = new LiquidStyle();
+    private float offsetX, offsetY;
 
     Scene() {
         this(true);
@@ -166,6 +168,10 @@ final class Scene {
     void liquid(Canvas c, RectF r, float radius, int tint, float tintAlpha, float lift, float band, float refraction,
                 float specular, float alpha) {
         if (alpha <= 0.004f) return;
+        if (Prefs.liquidGlass()) {
+            liquidStyle.surface(c, r, radius, tint, tintAlpha, lift, 1, alpha, w, h, offsetX, offsetY);
+            return;
+        }
         if (liquid == null) {
             glass(c, r, radius, tint, Math.max(0.5f, tintAlpha), 0, 0, lift, 1, alpha);
             return;
@@ -210,6 +216,8 @@ final class Scene {
 
     /** Offset (px) of the layer that will draw glass, if it was moved on screen without being redrawn. */
     void setOffset(float x, float y) {
+        offsetX = x;
+        offsetY = y;
         if (glass != null) glass.setFloatUniform("offset", x, y);
         if (liquid != null) liquid.setFloatUniform("offset", x, y);
     }
@@ -221,6 +229,10 @@ final class Scene {
     }
 
     void drawBackground(Canvas c) {
+        if (Prefs.liquidGlass()) {
+            liquidStyle.background(c, w, h, 1);
+            return;
+        }
         if (aurora == null) {
             if (fallback.getShader() == null) applyPalette();
             c.drawRect(0, 0, w, h, fallback);
@@ -252,6 +264,10 @@ final class Scene {
     /** Same, with an opacity (0 to 1) for the whole glass. */
     void glass(Canvas c, RectF r, float radius, int tint, float tintAlpha, int glow, float glowAlpha, float lift, float body, float alpha) {
         if (alpha <= 0.004f) return;
+        if (Prefs.liquidGlass()) {
+            liquidStyle.surface(c, r, radius, tint, tintAlpha, lift, body, alpha, w, h, offsetX, offsetY);
+            return;
+        }
         if (glass == null) {
             if (body > 0) {
                 flatFill.setColor(Ui.alpha(tint | 0xFF000000, Math.max(0.35f, tintAlpha)));
@@ -274,5 +290,25 @@ final class Scene {
         glassPaint.setAlpha(Math.round(255 * Math.min(1, alpha)));
         c.drawRect(r.left - 1, r.top - 1, r.right + 1, r.bottom + 1, glassPaint);
         glassPaint.setAlpha(255);
+    }
+
+    void drawLiquidBackground(Canvas c, float darkness) {
+        liquidStyle.background(c, w, h, darkness);
+    }
+
+    void drawLiquidClock(Canvas c, String text, float x, float baseline, Paint paint, float darkness) {
+        liquidStyle.clock(c, text, x, baseline, paint, darkness);
+    }
+
+    void cachedLiquid(Canvas c, String key, RectF base, RectF actual, float radius, int tint,
+                      float tintAlpha, float lift, float focus, float alpha) {
+        liquidStyle.cachedSurface(c, key, base, actual, radius, tint, tintAlpha, lift, focus, alpha,
+                w, h, offsetX, offsetY);
+    }
+
+    void cachedAppGlass(Canvas c, String key, RectF base, RectF actual, float radius, int tint,
+                        float tintAlpha, float lift, float focus, int focusColor) {
+        liquidStyle.cachedSurface(c, key, base, actual, radius, tint, tintAlpha, lift, focus, 1,
+                w, h, offsetX, offsetY, focusColor);
     }
 }

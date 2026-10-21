@@ -6,6 +6,16 @@ final class German {
 
     static String text(String english) {
         switch (english) {
+            case "Glass style": return "Glasstil";
+            case "Glass background": return "Glashintergrund";
+            case "Dock style": return "Dock-Stil";
+            case "Compact": return "Kompakt";
+            case "Standard": return "Standard";
+            case "Flowers & sky": return "Blumen und Himmel";
+            case "Default": return "Standard";
+            case "Inputs section": return "Eingangsbereich";
+            case "Shortcuts section": return "Verknüpfungsbereich";
+            case "Enable Inputs section in Home Settings.": return "Aktiviere den Eingangsbereich in den Start-Einstellungen.";
             case "Live TV": return "Live-TV";
             case "All Apps": return "Alle Apps";
             case "Settings": return "Einstellungen";

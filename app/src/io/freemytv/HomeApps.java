@@ -146,6 +146,8 @@ final class HomeApps {
             }
             items.add(it);
         }
+        // This fixed action stays last and is not part of the saved, reorderable app list.
+        items.add(shortcut(ALL_APPS, "more-apps", Ui.tr("Mais Apps", "More Apps"), "apps"));
         return items;
     }
 
@@ -320,14 +322,10 @@ final class HomeApps {
         return "hdmi";
     }
 
-    /** Installed, enabled TV apps that are not on the home screen (the TV's Settings is among them), plus our own. */
+    /** All installed, enabled TV apps, including dock apps and the TV's Settings, plus our settings. */
     static List<Item> others(Context c) {
         PackageManager pm = c.getPackageManager();
         Set<String> skip = new HashSet<>();
-        // A built-in app is skipped only while it is on the shelf: one the person took off must still be listed here.
-        List<String> onShelf = shelfPackages(c);
-        for (String[] d : SHELF) if (onShelf.contains(d[2])) skip.add(d[2]);
-        skip.addAll(java.util.Arrays.asList(LIVE_TV_APPS));
         skip.add(c.getPackageName());
         skip.addAll(HIDDEN);
         Intent query = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);

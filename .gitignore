@@ -10,5 +10,14 @@ out/
 *.wgt
 __pycache__/
 
+# Local generation job state and temporary upload/download URLs
+flower-animation-job.json
+.env
+.env.*
+!.env.example
+*.jks
+*.p12
+*.pfx
+
 # macOS
 .DS_Store
