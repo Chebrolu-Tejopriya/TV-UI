@@ -30,6 +30,14 @@ final class RemoteKeys {
         return TCL || VESTEL;
     }
 
+    /**
+     * Global key filtering breaks held-volume repeats on this TCL Android 9 firmware (verified with the service
+     * off/on). Keep the system's volume handling intact; app shortcuts can still be handled on our home screen.
+     */
+    static boolean backgroundSupported() {
+        return supported() && !(TCL && Build.VERSION.SDK_INT == 28);
+    }
+
     private static boolean is(String maker) {
         return maker.equalsIgnoreCase(Build.MANUFACTURER) || maker.equalsIgnoreCase(Build.BRAND);
     }

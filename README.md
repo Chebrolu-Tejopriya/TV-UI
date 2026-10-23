@@ -170,7 +170,7 @@ To remove it for good, switch to *Original* first, then uninstall *Free My TV* (
   - on Philco TVs, AI PONT (promo channels and app downloads) and the manual;
   - on Multilaser TVs, Anoki's screen-content recognition (ACR), the store demo and the manual;
   - Google Assistant, only with `disable_assistant=true`.
-- On TCL TVs, the remote's Netflix, YouTube and Prime buttons keep working through a small accessibility service that only reads those buttons. Pick what each one opens in *Free My TV* → *Remote Buttons*; *Original* turns the service off. On Vestel-made TVs (F&U and other store brands) the same goes for the Netflix button.
+- On supported TCL TVs, the remote's Netflix, YouTube and Prime buttons work across apps through a small accessibility service. This custom build keeps that service **off on TCL Android 9**: on firmware V8-R851T02-LF1V620.018337, disabling it restored continuous volume changes when holding the remote's volume button. Boot and app-update checks keep it off. App shortcuts can still work on the launcher, but may not work inside other apps; dock icons continue to open apps. Pick shortcut targets in *Free My TV* → *Remote Buttons*. On Vestel-made TVs (F&U and other store brands), the background service handles the Netflix button. *Original* turns the service off.
 - Picture, sound, inputs, remote pairing, Google services and the Play Store are on a protected list, checked before every change.
 - Apps that saved a Wi-Fi network are never turned off, since Android would erase the network. If the TV's first setup saved yours, the switch asks you to forget the network and connect again in Settings first (saved networks out of range don't show there; Claude Code can remove them).
 
