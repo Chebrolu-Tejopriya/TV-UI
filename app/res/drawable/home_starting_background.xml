@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/home_background" />
+    <item>
+        <bitmap android:src="@drawable/home_wallpaper" android:gravity="fill" android:filter="true" />
+    </item>
+    <item>
+        <shape>
+            <solid android:color="#0A071626" />
+        </shape>
+    </item>
+</layer-list>

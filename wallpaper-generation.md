@@ -2,7 +2,7 @@ Generated using the built-in image generation tool on 2026-10-21.
 
 Input: `download (5).jpg` (unchanged).
 
-Project asset: `app/assets/wallpapers/flowers-sky-landscape.png`.
+Project asset: `app/res/drawable-nodpi/home_wallpaper.png` (shared by the home renderer and its starting window).
 
 Prompt:
 

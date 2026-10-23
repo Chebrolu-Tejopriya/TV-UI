@@ -37,7 +37,7 @@ public class HomeActivity extends Activity {
         Ui.init(this);
         home = new HomeView(this);
         setContentView(home);
-        getWindow().setBackgroundDrawable(null);
+        // Keep the wallpaper behind the content while Android attaches or restores the home surface.
     }
 
     @Override protected void onResume() {

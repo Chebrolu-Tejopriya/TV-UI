@@ -2,13 +2,11 @@ package io.freemytv;
 
 import android.content.Context;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.RectF;
-import java.io.IOException;
-import java.io.InputStream;
+import android.graphics.drawable.BitmapDrawable;
 
 /** Bundled artwork, decoded once when selected, never while drawing a frame. */
 final class Wallpaper {
@@ -22,9 +20,10 @@ final class Wallpaper {
 
     static boolean load() {
         if (image != null) return true;
-        try (InputStream in = app.getAssets().open("wallpapers/flowers-sky-landscape.png")) {
-            image = BitmapFactory.decodeStream(in);
-        } catch (IOException | RuntimeException e) {
+        try {
+            // Share the drawable resource with the starting window rather than decode a second bitmap from assets.
+            image = ((BitmapDrawable) app.getDrawable(R.drawable.home_wallpaper)).getBitmap();
+        } catch (RuntimeException e) {
             AppLog.w("wallpaper unavailable: " + e.getMessage());
         }
         return image != null;

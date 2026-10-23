@@ -6,6 +6,8 @@ This version adds a Liquid Glass appearance, a larger compact dock with brand-co
 
 The preferred background is **Flowers & sky (still)**. Optional video playback remains available in Home Settings, but motion defaults off. This repository contains source and artwork; signing keys, private configuration, local backups, build output, and TV playback-history data are excluded.
 
+The home screen's starting window uses the same flower artwork as its wallpaper, avoiding the old pale flash when returning from another app. The artwork is shared from an Android drawable resource.
+
 ## Build on Windows
 
 Install Python 3, JDK 17, and Android SDK Platform 34 plus Build Tools 34.0.0. ADB is needed only to install or connect to a TV. The build script does not change the TV.
